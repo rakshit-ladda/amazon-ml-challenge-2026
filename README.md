@@ -1,4 +1,4 @@
-# Amazon ML Challenge 2026 — v3c (validation 0.9909, lockbox 0.9908)
+# Amazon ML Challenge 2026 — v3c (public LB 0.985845; validation 0.9909, lockbox 0.9908)
 
 ## Methodology
 
