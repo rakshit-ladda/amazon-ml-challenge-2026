@@ -1,11 +1,13 @@
-pandas
-numpy
-scikit-learn
-xgboost
-lightgbm
-catboost
-matplotlib
-seaborn
-scipy
-jupyter
-openpyxl
+accelerate==1.15.0
+datasets==5.0.1
+lightgbm==4.7.0
+numpy==2.5.3
+polars==1.44.2
+pyarrow==25.0.1
+RapidFuzz==3.14.6
+scikit-learn==1.9.1
+sentence-transformers==6.1.0
+sparse-dot-topn==1.2.0
+torch==2.11.0  # cu128 build: pip install torch --index-url https://download.pytorch.org/whl/cu128
+transformers==5.17.0
+Unidecode==1.4.0
