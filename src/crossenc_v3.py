@@ -132,6 +132,13 @@ def train(n_queries):
             curr = (i + 1) // GRAD_ACCUM
             print(f"step {curr}/{total_steps} loss {run:.4f} {((i + 1) * BATCH_SIZE) / (time.time() - t0):.0f} pairs/s", flush=True)
             
+        # Save a checkpoint every 500 effective steps
+        if (i + 1) % (GRAD_ACCUM * 500) == 0:
+            curr = (i + 1) // GRAD_ACCUM
+            ckpt_path = f"{OUT}_step_{curr}"
+            print(f"Saving checkpoint to {ckpt_path}...", flush=True)
+            model.save_pretrained(ckpt_path)
+            
     print(f"done {total_steps} steps {len(data) / (time.time() - t0):.0f} pairs/s", flush=True)
     model.save_pretrained(OUT)
     tok.save_pretrained(OUT)
