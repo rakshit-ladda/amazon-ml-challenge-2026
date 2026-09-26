@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 """Fine-tuned bi-encoder for dense candidate retrieval.
 
 Base model: intfloat/multilingual-e5-small (MIT licence, 118M params) -- multilingual,
@@ -31,9 +34,9 @@ def text(df):
 def train(n_pairs):
     import torch
     from datasets import Dataset
-    from sentence_transformers import (SentenceTransformer, SentenceTransformerTrainer,
-                                       SentenceTransformerTrainingArguments, losses)
-    from sentence_transformers.training_args import BatchSamplers
+    from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
+    from sentence_transformers.sentence_transformer import losses
+    from sentence_transformers.sentence_transformer.training_args import BatchSamplers
 
     gt = pl.read_csv("../dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False).fill_null("")
     links = (gt.rename({"source1_entity_id": "s1id"})
@@ -57,7 +60,7 @@ def train(n_pairs):
     ds = Dataset.from_dict({"anchor": a, "positive": b})
     args = SentenceTransformerTrainingArguments(
         output_dir=f"{W}/bi_ckpt", num_train_epochs=1, per_device_train_batch_size=512,
-        learning_rate=5e-5, warmup_ratio=0.05, bf16=True, logging_steps=200, save_strategy="no",
+        learning_rate=5e-5, warmup_steps=200, bf16=True, logging_steps=200, save_strategy="no",
         batch_sampler=BatchSamplers.NO_DUPLICATES, dataloader_num_workers=4, report_to="none")
     trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=ds,
                                          loss=losses.MultipleNegativesRankingLoss(model))

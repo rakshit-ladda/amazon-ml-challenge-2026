@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 """Cross-encoder reranker.
 
 A transformer that reads both records of a candidate pair jointly and outputs a
