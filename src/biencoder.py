@@ -59,7 +59,7 @@ def train(n_pairs):
     model.max_seq_length = MAXLEN
     ds = Dataset.from_dict({"anchor": a, "positive": b})
     args = SentenceTransformerTrainingArguments(
-        output_dir=f"{W}/bi_ckpt", num_train_epochs=1, per_device_train_batch_size=512,
+        output_dir=f"{W}/bi_ckpt", num_train_epochs=1, per_device_train_batch_size=32, gradient_accumulation_steps=16,
         learning_rate=5e-5, warmup_steps=200, bf16=True, logging_steps=200, save_strategy="no",
         batch_sampler=BatchSamplers.NO_DUPLICATES, dataloader_num_workers=4, report_to="none")
     trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=ds,
@@ -79,7 +79,7 @@ def encode(split, src, shard, nshards):
     model = SentenceTransformer(OUT, device="cuda")
     model.max_seq_length = MAXLEN
     model.half()
-    e = model.encode(text(df), batch_size=1024, normalize_embeddings=True, convert_to_numpy=True,
+    e = model.encode(text(df), batch_size=128, normalize_embeddings=True, convert_to_numpy=True,
                      show_progress_bar=False).astype(np.float16)
     np.save(f"{W}/emb_{split}_s{src}_{shard}.npy", e)
     print("encoded", split, src, shard, e.shape, flush=True)
