@@ -30,7 +30,7 @@ from normalize import LEGAL, name_parts
 from train import PARAMS, assign, labels, score
 
 W = "work"
-TOPN = 3
+TOPN = 15
 
 
 def pairs(split):

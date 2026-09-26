@@ -50,7 +50,7 @@ def candidates(split):
     else:
         c = c.with_columns(cos_be=pl.lit(None, pl.Float32), rk_be=pl.lit(None, pl.Int16))
     if split == "train":
-        gt = (pl.read_csv("dataset/train/train_ground_truth.tsv", separator="	", infer_schema=False)
+        gt = (pl.read_csv("../dataset/train/train_ground_truth.tsv", separator="	", infer_schema=False)
               .fill_null("").with_columns(qid=pl.col("matched_entity_ids").str.split(",")).explode("qid")
               .filter(pl.col("qid") != "").select(pl.col("source1_entity_id").alias("true_s1"), "qid"))
         touch = c.filter(eval_s1(pl.col("s1id"))).select("qid").unique()

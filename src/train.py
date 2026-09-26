@@ -24,7 +24,7 @@ ROUNDS = 300
 
 def labels():
     """Ground truth as (qid, s1id) link frame and {s1: set(qids)} dict."""
-    gt = (pl.read_csv("dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False)
+    gt = (pl.read_csv("../dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False)
           .fill_null("").rename({"source1_entity_id": "s1id"}))
     links = (gt.with_columns(qid=pl.col("matched_entity_ids").str.split(",")).explode("qid")
              .filter(pl.col("qid") != "").select("qid", "s1id").with_columns(y=pl.lit(1, pl.Int8)))

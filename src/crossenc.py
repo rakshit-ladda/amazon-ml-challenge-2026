@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 W = "work"
-BASE = "intfloat/multilingual-e5-small"
+BASE = "Qwen/Qwen2.5-1.5B"
 OUT = f"{W}/crossenc"
 MAXLEN = 128
 
@@ -54,7 +54,7 @@ def collate(tok):
 def train_pairs(n_queries):
     """Bi-encoder top-3 pairs for fold-A queries (true S1 in fold A, or distractors
     whose top-1 is in fold A); pairs with a fold-B S1 are dropped."""
-    gt = (pl.read_csv("dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False).fill_null("")
+    gt = (pl.read_csv("../dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False).fill_null("")
           .with_columns(qid=pl.col("matched_entity_ids").str.split(",")).explode("qid")
           .filter(pl.col("qid") != "").select(pl.col("source1_entity_id").alias("s1id"), "qid"))
     be = pl.read_parquet(f"{W}/train_be.parquet").filter(pl.col("rk_be") < 3)
@@ -74,28 +74,52 @@ def train(n_queries):
     p = with_text(train_pairs(n_queries), "train")
     print("train pairs", p.height, "pos rate", p["y"].mean(), flush=True)
     tok = AutoTokenizer.from_pretrained(BASE)
-    model = AutoModelForSequenceClassification.from_pretrained(BASE, num_labels=1).cuda()
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+    
+    # Load 1.5B LLM directly in BF16
+    model = AutoModelForSequenceClassification.from_pretrained(BASE, num_labels=1, torch_dtype=torch.bfloat16).cuda()
+    model.config.pad_token_id = tok.pad_token_id
+    
     data = list(zip(p["q_txt"].to_list(), p["s_txt"].to_list(), p["y"].to_list()))
-    dl = DataLoader(data, batch_size=256, shuffle=False, collate_fn=collate(tok), num_workers=6)
-    opt = torch.optim.AdamW(model.parameters(), lr=4e-5, weight_decay=0.01)
-    steps = len(dl)
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=4e-5, total_steps=steps, pct_start=0.05)
+    
+    # Gradient Accumulation
+    BATCH_SIZE = 8
+    GRAD_ACCUM = 32
+    
+    dl = DataLoader(data, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate(tok), num_workers=6)
+    opt = torch.optim.AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
+    
+    total_steps = len(dl) // GRAD_ACCUM
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=2e-5, total_steps=total_steps, pct_start=0.05)
     lossf = torch.nn.BCEWithLogitsLoss()
     model.train()
+    
     t0, run = time.time(), 0.0
+    opt.zero_grad(set_to_none=True)
+    
     for i, b in enumerate(dl):
         b = {k: v.cuda(non_blocking=True) for k, v in b.items()}
         y = b.pop("labels")
+        
         with torch.autocast("cuda", dtype=torch.bfloat16):
             logit = model(**b).logits.squeeze(-1)
-        loss = lossf(logit.float(), y)
+            loss = lossf(logit.float(), y) / GRAD_ACCUM
+            
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        opt.step(); sched.step(); opt.zero_grad(set_to_none=True)
-        run = 0.98 * run + 0.02 * loss.item()
-        if i % 1000 == 0:
-            print(f"step {i}/{steps} loss {run:.4f} {(i + 1) * 256 / (time.time() - t0):.0f} pairs/s", flush=True)
-    print(f"done {steps} steps {steps * 256 / (time.time() - t0):.0f} pairs/s", flush=True)
+        
+        if (i + 1) % GRAD_ACCUM == 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
+            sched.step()
+            opt.zero_grad(set_to_none=True)
+            
+        run = 0.98 * run + 0.02 * (loss.item() * GRAD_ACCUM)
+        if (i + 1) % (GRAD_ACCUM * 10) == 0:
+            curr = (i + 1) // GRAD_ACCUM
+            print(f"step {curr}/{total_steps} loss {run:.4f} {((i + 1) * BATCH_SIZE) / (time.time() - t0):.0f} pairs/s", flush=True)
+            
+    print(f"done {total_steps} steps {len(data) / (time.time() - t0):.0f} pairs/s", flush=True)
     model.save_pretrained(OUT)
     tok.save_pretrained(OUT)
 
@@ -109,15 +133,22 @@ def score(pairs_path, out, shard, nshards, split=None):
     split = split or ("test" if "test" in pairs_path else "train")
     p = with_text(p.slice(lo, hi - lo), split)
     tok = AutoTokenizer.from_pretrained(OUT)
-    model = AutoModelForSequenceClassification.from_pretrained(OUT).cuda().to(torch.bfloat16).eval()
+    
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+        
+    model = AutoModelForSequenceClassification.from_pretrained(OUT, torch_dtype=torch.bfloat16).cuda().eval()
+    model.config.pad_token_id = tok.pad_token_id
+    
     data = list(zip(p["q_txt"].to_list(), p["s_txt"].to_list(), [0.0] * p.height))
-    dl = DataLoader(data, batch_size=1024, shuffle=False, collate_fn=collate(tok), num_workers=6)
+    # Reduced batch size for 1.5B LLM inference
+    dl = DataLoader(data, batch_size=32, shuffle=False, collate_fn=collate(tok), num_workers=6)
     res, t0 = [], time.time()
     for i, b in enumerate(dl):
         b.pop("labels")
         res.append(model(**{k: v.cuda(non_blocking=True) for k, v in b.items()}).logits.squeeze(-1).float().cpu().numpy())
-        if i % 500 == 0:
-            print(f"{i * 1024}/{p.height} {(i + 1) * 1024 / (time.time() - t0):.0f} pairs/s", flush=True)
+        if i % 100 == 0:
+            print(f"{i * 32}/{p.height} {(i + 1) * 32 / (time.time() - t0):.0f} pairs/s", flush=True)
     np.save(out, np.concatenate(res))
     print("scored", out, flush=True)
 

@@ -3,7 +3,7 @@ the candidate set, overall / per blocker / by rank, plus the cross-country check
 import polars as pl
 
 c = pl.read_parquet("work/train_cand.parquet")
-gt = (pl.read_csv("dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False)
+gt = (pl.read_csv("../dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False)
       .fill_null("").with_columns(pl.col("matched_entity_ids").str.split(","))
       .explode("matched_entity_ids").filter(pl.col("matched_entity_ids") != "")
       .rename({"source1_entity_id": "s1id", "matched_entity_ids": "qid"}))

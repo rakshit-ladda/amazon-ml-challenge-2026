@@ -18,14 +18,14 @@ import numpy as np
 import polars as pl
 
 W = "work"
-BASE = "intfloat/multilingual-e5-small"
+BASE = "BAAI/bge-m3"
 OUT = f"{W}/biencoder"
-MAXLEN = 64
+MAXLEN = 128
 
 
 def text(df):
-    """Model input: 'query: name | address' (e5 expects a prefix; symmetric task)."""
-    return ("query: " + df["business_name"] + " | " + df["business_address"]).to_list()
+    """Model input: 'name | address'."""
+    return (df["business_name"] + " | " + df["business_address"]).to_list()
 
 
 def train(n_pairs):
@@ -35,7 +35,7 @@ def train(n_pairs):
                                        SentenceTransformerTrainingArguments, losses)
     from sentence_transformers.training_args import BatchSamplers
 
-    gt = pl.read_csv("dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False).fill_null("")
+    gt = pl.read_csv("../dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False).fill_null("")
     links = (gt.rename({"source1_entity_id": "s1id"})
              .filter((pl.col("s1id").hash(7) % 2) == 0)
              .with_columns(qid=pl.col("matched_entity_ids").str.split(",")).explode("qid")
