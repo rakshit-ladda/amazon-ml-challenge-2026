@@ -32,8 +32,15 @@ MAXLEN = 128
 
 def records(split):
     """entity_id -> 'name | address' text for S1 and S2/S3 of a split."""
-    cols = ["entity_id", "business_name", "business_address"]
+    cols = ["entity_id", "business_name", "business_address", "country"]
     df = pl.concat([pl.read_parquet(f"{W}/{split}_s{i}.parquet").select(cols) for i in (1, 2, 3)])
+    if os.environ.get("CANON_FR") == "1":  # departement -> region for France (map learned by canon_fr.py)
+        import json
+        from canon_fr import canon_address
+        amap = json.load(open(f"{W}/fr_admin_map.json"))
+        df = df.with_columns(business_address=pl.when(pl.col("country") == "France").then(
+            pl.col("business_address").map_elements(lambda a: canon_address(a, amap), return_dtype=pl.Utf8))
+            .otherwise(pl.col("business_address")))
     return df.select("entity_id", txt=pl.col("business_name") + " | " + pl.col("business_address"))
 
 

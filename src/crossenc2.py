@@ -67,7 +67,11 @@ def train(n_queries):
     p = with_text(train_pairs(n_queries), "train").select("q_txt", "s_txt", "y")
     extra = os.environ.get("CE_EXTRA")
     if extra:
-        x = with_text(pl.read_parquet(extra), "test").select("q_txt", "s_txt", "y")
+        x = pl.read_parquet(extra)
+        n_extra = int(os.environ.get("CE_EXTRA_N", 0))  # optional subsample of pseudo pairs
+        if n_extra and n_extra < x.height:
+            x = x.sample(n_extra, seed=int(os.environ.get("CE_SEED", 0)))
+        x = with_text(x, "test").select("q_txt", "s_txt", "y")
         p = pl.concat([p, x])
         print("added pseudo pairs", x.height, flush=True)
     print("train pairs", p.height, "pos rate", round(p["y"].mean(), 4), flush=True)
@@ -76,7 +80,8 @@ def train(n_queries):
     lr = float(os.environ.get("CE_LR", 4e-5))
     tok = AutoTokenizer.from_pretrained(init)
     model = AutoModelForSequenceClassification.from_pretrained(init, num_labels=1).cuda()
-    ds = Bucketed(p["q_txt"].to_list(), p["s_txt"].to_list(), p["y"].to_list(), bs, shuffle=True)
+    ds = Bucketed(p["q_txt"].to_list(), p["s_txt"].to_list(), p["y"].to_list(), bs, shuffle=True,
+                  seed=int(os.environ.get("CE_SEED", 0)))
     dl = DataLoader(ds, batch_size=1, shuffle=False, collate_fn=make_collate(tok), num_workers=6, prefetch_factor=4)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=len(dl), pct_start=0.05)

@@ -1,4 +1,4 @@
-# v3b (public LB 0.9852)
+# v3c
 
     python prep.py dataset work
     python block.py train 10 && python block.py test 10
@@ -17,3 +17,5 @@
     CE_BASE=intfloat/multilingual-e5-base CE_INIT=work/crossenc_base CE_OUT=work/crossenc_base_fr CE_EXTRA=work/fr_pseudo.parquet CE_LR=2e-5 python crossenc.py train 400000
     # score top-3 pairs with both (prefixes cefr, cebfr), then:
     S2_TAG=_v3b CE_PREFIXES=cefr,cebfr python stage2.py feats train && ... feats test && ... fit && ... predict output_v3b
+    # v3c (after v3b): drop competitor-count features, retrain stage 1, refit stage 2, write output_v3c/
+    python v3c.py
