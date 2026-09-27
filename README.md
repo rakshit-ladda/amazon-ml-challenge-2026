@@ -1,4 +1,4 @@
-# Amazon ML Challenge 2026 — v4d / candidate D (lockbox 0.9913)
+# Amazon ML Challenge 2026 — v4d / candidate D (public LB 0.986648; lockbox 0.9913)
 
 ## Methodology
 
@@ -11,6 +11,6 @@
 7. Keep v3c's cross-encoders (v3q base). Add Qwen2.5-1.5B LoRA scores on the wide uncertain band (0.01-0.99) and Qwen2.5-7B LoRA scores (0.05-0.95) as stage-2 features.
 8. Refit stage 2; assign best match if score >= 0.45.
 
-Notes: v4d (D) | v3c stage 2 (original e5 CEs, = v3q base) + Qwen2.5-1.5B LoRA (wide band 0.01-0.99) + Qwen2.5-7B LoRA (narrow band 0.05-0.95) | t=0.45 | val 0.9913, lockbox 0.9913 (v3q 0.9912/0.9911) | LB=?
+Notes: v4d (D) | v3c stage 2 (original e5 CEs, = v3q base) + Qwen2.5-1.5B LoRA (wide band 0.01-0.99) + Qwen2.5-7B LoRA (narrow band 0.05-0.95) | t=0.45 | val 0.9913, lockbox 0.9913 (v3q 0.9912/0.9911) | LB=0.986648 (public, below v3q 0.986853)
 
 Run order: see `src/RUN.md`.
