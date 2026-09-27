@@ -77,7 +77,7 @@ def train_pairs(n_queries):
     q = (top1.join(gt.rename({"s1id": "true_s1"}), on="qid", how="left")
          .filter(pl.when(pl.col("true_s1").is_null()).then(keep("top1"))
                  .otherwise(keep("true_s1"))).select("qid"))
-    q = q.sample(min(n_queries, q.height), seed=0)
+    q = q.sample(min(n_queries, q.height), seed=int(os.environ.get("CE_QSEED", 0)))  # different query samples per run
     p = (be.join(q, on="qid", how="semi").filter(fold_a)
          .join(gt.with_columns(y=pl.lit(1.0)), on=["qid", "s1id"], how="left")
          .with_columns(pl.col("y").fill_null(0.0)).select("qid", "s1id", "y"))
@@ -85,6 +85,7 @@ def train_pairs(n_queries):
 
 
 def train(n_queries):
+    import seeds; seeds.set_all()
     p = with_text(train_pairs(n_queries), "train").select("q_txt", "s_txt", "y")
     extra = os.environ.get("CE_EXTRA")  # optional test-split pseudo-labelled pairs (qid, s1id, y)
     if extra:

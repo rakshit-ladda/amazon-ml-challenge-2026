@@ -233,6 +233,7 @@ def predict(outdir):
     m = lgb.Booster(model_file=f"{W}/model2{TAG}.txt")
     d = pl.read_parquet(f"{W}/test_s2feat{TAG}.parquet")
     d = d.with_columns(p=pl.Series(m.predict(d.select(m.feature_name()).to_numpy(), num_threads=16)))
+    d.select("qid", "s1id", "p").write_parquet(f"{W}/test_pred2{TAG}.parquet")
     s1 = pl.read_parquet(f"{W}/test_s1.parquet").select("entity_id")
     write_lists(s1, d.select("s1id", "qid"), "candidate_entity_ids", f"{outdir}/candidate_pairs.tsv")
     match = assign(d, dec["t"]) if dec["rule"] == "global" else assign_ef(d, dec["floor"], dec["a"])

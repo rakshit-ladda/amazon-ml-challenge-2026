@@ -67,6 +67,7 @@ def load(path, train):
 
 
 def train(n_queries):
+    import seeds; seeds.set_all()
     p = with_text(train_pairs(n_queries), "train").select("q_txt", "s_txt", "y")
     extra = os.environ.get("CE_EXTRA")
     if extra:

@@ -1,13 +1,16 @@
+# Python 3.12, CUDA 12.8 (NVIDIA RTX PRO 6000 Blackwell, sm_120)
+# torch must come from the cu128 index:  pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0
+transformers==5.17.0
+sentence-transformers==6.1.0
+peft==0.21.0
 accelerate==1.15.0
 datasets==5.0.1
 lightgbm==4.7.0
-numpy==2.5.3
 polars==1.44.2
 pyarrow==25.0.1
-RapidFuzz==3.14.6
+numpy==2.5.3
 scikit-learn==1.9.1
-sentence-transformers==6.1.0
 sparse-dot-topn==1.2.0
-torch==2.11.0  # cu128 build: pip install torch --index-url https://download.pytorch.org/whl/cu128
-transformers==5.17.0
+RapidFuzz==3.14.6
 Unidecode==1.4.0

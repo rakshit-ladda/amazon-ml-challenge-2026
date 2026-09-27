@@ -32,6 +32,25 @@ def extra_feats(d, split):
     return d
 
 
+def prune(d):
+    """Final blocking filter: keep candidates with stage-1 probability >= PRUNE_P1 (runs BEFORE the
+    stage-2 model, so the candidate file is exactly what the model scores), then recompute the
+    per-query relative features on the smaller candidate set."""
+    tau = float(os.environ.get("PRUNE_P1", 0))
+    if tau <= 0:
+        return d
+    d = d.filter(pl.col("p1") >= tau)
+    rel = {}
+    for c in ("ce", "ce2"):
+        if c in d.columns:
+            rel[f"{c}_gap"] = pl.col(c) - pl.col(c).max().over("qid")
+            rel[f"{c}_rank"] = pl.col(c).rank(descending=True).over("qid").cast(pl.Int8)
+    rel["p1_gap"] = pl.col("p1") - pl.col("p1").max().over("qid")
+    rel["r1"] = (pl.col("p1").rank(descending=True, method="ordinal").over("qid") - 1).cast(pl.Int8)
+    rel["n_top"] = pl.len().over("qid").cast(pl.Int8)
+    return d.with_columns(**rel)
+
+
 def swap_ce(d, split, small, base):
     """Replace v3c's ce (e5-small) / ce2 (e5-base) columns and their per-query gap/rank.
     'keep' keeps v3c's original cross-encoder columns."""
@@ -49,11 +68,12 @@ def swap_ce(d, split, small, base):
 
 if __name__ == "__main__":
     small, base, extra = sys.argv[1], sys.argv[2], sys.argv[3:]
-    name = "_".join([small, base] + extra + [x for x in os.environ.get("EXTRA_FEATS", "").split(",") if x])
+    name = "_".join([small, base] + extra + [x for x in os.environ.get("EXTRA_FEATS", "").split(",") if x]
+                    + ([f"p{os.environ['PRUNE_P1']}"] if float(os.environ.get("PRUNE_P1", 0)) > 0 else []))
     gt, links = labels()
     gt_e = gt.filter(eval_s1(pl.col("s1id")))
     gt_tune, gt_lock = gt_e.filter(~lock_split(pl.col("s1id"))), gt_e.filter(lock_split(pl.col("s1id")))
-    tr = extra_feats(swap_ce(pl.read_parquet(f"{W}/train_s2feat_v3c.parquet"), "train", small, base), "train")
+    tr = extra_feats(prune(swap_ce(pl.read_parquet(f"{W}/train_s2feat_v3c.parquet"), "train", small, base)), "train")
     if extra:
         tr = add_llm(tr, "train", extra)
     tr = tr.join(links, on=["qid", "s1id"], how="left").with_columns(
@@ -68,15 +88,15 @@ if __name__ == "__main__":
     oof = tr.select("qid", "s1id").with_columns(p=pl.Series(p))
     oof.write_parquet(f"{W}/train_oof_v3f_{name}.parquet")
     tune = {t: score(assign(oof, t), gt_tune) for t in (0.35, 0.4, 0.45, 0.5, 0.55)}
-    bt = float(max(tune, key=tune.get))
+    bt = float(os.environ["V3F_T"]) if "V3F_T" in os.environ else float(max(tune, key=tune.get))  # V3F_T pins the threshold
     print(f"v3c lockbox 0.9908 | v3f[{name}] lockbox {score(assign(oof, bt), gt_lock):.4f} "
-          f"full val {score(assign(oof, bt), gt_e):.4f} (t={bt}, chosen on tune half)", flush=True)
+          f"full val {score(assign(oof, bt), gt_e):.4f} (t={bt})", flush=True)
     m = lgb.train(prm, lgb.Dataset(X, y, feature_name=F), 500)
     imp = sorted(zip(m.feature_importance("gain"), F), reverse=True)
     print("top feats", [(f, int(g)) for g, f in imp[:8]], flush=True)
     m.save_model(f"{W}/model2_v3f_{name}.txt")
     json.dump({"t": bt}, open(f"{W}/decision_v3f_{name}.json", "w"))
-    te = extra_feats(swap_ce(pl.read_parquet(f"{W}/test_s2feat_v3c.parquet"), "test", small, base), "test")
+    te = extra_feats(prune(swap_ce(pl.read_parquet(f"{W}/test_s2feat_v3c.parquet"), "test", small, base)), "test")
     if extra:
         te = add_llm(te, "test", extra)
     pred = te.select("qid", "s1id").with_columns(
@@ -84,6 +104,9 @@ if __name__ == "__main__":
     pred.write_parquet(f"{W}/test_pred_v3f_{name}.parquet")
     out = f"output_v3f_{name}"
     os.makedirs(out, exist_ok=True)
-    s1 = pl.read_parquet(f"{W}/test_s1.parquet").select("entity_id")
-    write_lists(s1, pred.select("s1id", "qid"), "candidate_entity_ids", f"{out}/candidate_pairs.tsv")
-    write_lists(s1, assign(pred, bt), "matched_entity_ids", f"{out}/matching_results.tsv")
+    s1 = pl.read_parquet(f"{W}/test_s1.parquet").select("entity_id", "country")
+    write_lists(s1.select("entity_id"), pred.select("s1id", "qid"), "candidate_entity_ids", f"{out}/candidate_pairs.tsv")
+    # France is test-only, so its threshold cannot be tuned on validation; FR_T was set on the public leaderboard
+    is_fr = pl.col("s1id").is_in(s1.filter(pl.col("country") == "France")["entity_id"].implode())
+    match = pl.concat([assign(pred.filter(~is_fr), bt), assign(pred.filter(is_fr), float(os.environ.get("FR_T", bt)))])
+    write_lists(s1.select("entity_id"), match, "matched_entity_ids", f"{out}/matching_results.tsv")

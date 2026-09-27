@@ -18,7 +18,7 @@ W = "work"
 FEATS = None  # set from the frame
 PARAMS = dict(objective="binary", learning_rate=0.08, num_leaves=127, min_data_in_leaf=200,
               feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0,
-              num_threads=16, verbose=-1)
+              num_threads=16, verbose=-1, seed=42, deterministic=True, force_row_wise=True)
 ROUNDS = 300
 
 

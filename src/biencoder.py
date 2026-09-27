@@ -29,6 +29,7 @@ def text(df):
 
 
 def train(n_pairs):
+    import seeds; seeds.set_all()
     import torch
     from datasets import Dataset
     from sentence_transformers import (SentenceTransformer, SentenceTransformerTrainer,
