@@ -65,13 +65,19 @@ def train_pairs(n_queries):
     gt = (pl.read_csv("dataset/train/train_ground_truth.tsv", separator="\t", infer_schema=False).fill_null("")
           .with_columns(qid=pl.col("matched_entity_ids").str.split(",")).explode("qid")
           .filter(pl.col("qid") != "").select(pl.col("source1_entity_id").alias("s1id"), "qid"))
-    be = pl.read_parquet(f"{W}/train_be.parquet").filter(pl.col("rk_be") < 3)
-    fold_a = (pl.col("s1id").hash(7) % 2) == 0
+    be = pl.read_parquet(os.environ.get("BE_PATH", f"{W}/train_be.parquet")).filter(pl.col("rk_be") < 3)  # any bi-encoder's candidates
+    if os.environ.get("TRAIN_SPLIT") == "notE":
+        # all training S1 except the held-out reranker set E (~85% of the data)
+        from features import eval_s1
+        keep = lambda c: ~eval_s1(pl.col(c))
+    else:
+        keep = lambda c: (pl.col(c).hash(7) % 2) == 0  # fold A (bi-encoder training half)
+    fold_a = keep("s1id")
     top1 = be.filter(pl.col("rk_be") == 0).select("qid", top1=pl.col("s1id"))
     q = (top1.join(gt.rename({"s1id": "true_s1"}), on="qid", how="left")
-         .filter(pl.when(pl.col("true_s1").is_null()).then((pl.col("top1").hash(7) % 2) == 0)
-                 .otherwise((pl.col("true_s1").hash(7) % 2) == 0)).select("qid"))
-    q = q.sample(min(n_queries, q.height), seed=0)
+         .filter(pl.when(pl.col("true_s1").is_null()).then(keep("top1"))
+                 .otherwise(keep("true_s1"))).select("qid"))
+    q = q.sample(min(n_queries, q.height), seed=int(os.environ.get("CE_QSEED", 0)))  # different query samples per run
     p = (be.join(q, on="qid", how="semi").filter(fold_a)
          .join(gt.with_columns(y=pl.lit(1.0)), on=["qid", "s1id"], how="left")
          .with_columns(pl.col("y").fill_null(0.0)).select("qid", "s1id", "y"))
