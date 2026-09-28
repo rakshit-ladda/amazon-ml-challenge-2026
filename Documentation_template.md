@@ -47,6 +47,18 @@ Because a business with no true match only scores 1.0 when we predict nothing fo
   4. **Stage-1 LightGBM** on about 40 cheap pair features. Each S2/S3 record keeps its top 3 S1 candidates.
   5. **Final filter.** Only candidates with a stage-1 probability of at least 0.005 reach the final model.
 - **Candidate pairs generated (test):** 8,906,044, which is **5.14 per Source 1 entity**, down from 17.3 before the final filter. All possible within-country pairs would be about 6.7 × 10¹², so the reduction ratio is about 99.9999%. `candidate_pairs.tsv` is exactly the set the final model runs inference on.
+- **How big the candidate set is, and how it compares:**
+
+  | Stage | Candidates per S1 entity |
+  |---|---|
+  | No blocking (every S2/S3 record in the same country) | about 3.9 million |
+  | Bi-encoder top 10 per S2/S3 record | about 58 |
+  | Top 3 per record after stage 1 | 17.3 |
+  | **Final set (stage-1 p ≥ 0.005), what the final model scores** | **5.14** |
+
+  Across S1 entities the final set has a median of 5, a 90th percentile of 8 and a 99th percentile of 11. The largest is 164, for a name shared by many records, and 13,305 S1 entities (0.8%) have no candidates at all.
+
+  For scale: test has about 5.75 S2/S3 records per S1 in total, decoys included, and we predict about 3.4 matches per S1. So the final model looks at fewer candidates per S1 than there are records per S1, only about 1.5 times the number of links it actually makes, and it still keeps 98.97% of true links on validation. Put another way, each S2/S3 record is attached to fewer than one S1 candidate on average (8.9M pairs for 10.0M records). We also tried going smaller: a stricter filter at p ≥ 0.01 gave 4.81 candidates per S1 and cost 0.0004 on the leaderboard. So 5.14 is close to the smallest set that doesn't start throwing away true matches on this data.
 - **How we ensured true matches were not lost:** We measured recall on held-out S1 entities that the retrieval never trained on. Bi-encoder recall@1 / @5 / @10 / @20 is 97.4% / 98.8% / 99.1% / 99.3%, TF-IDF alone 93.8%, and the union 99.2%. After the stage-1 top 3 and the final filter, 98.97% of true links are still there. Perfect decisions on this candidate set would score 0.9968, against our 0.9914, so most of the remaining loss is in matching rather than blocking. Most of the links that blocking misses are records with **no address and a name shared by several S1 businesses**, which no retriever can tell apart. We also tried a much larger BGE-M3 bi-encoder (568M) and it gave the same recall (99.07% against 99.09%), so we kept the small one.
 
 ---
@@ -98,7 +110,18 @@ Because a business with no true match only scores 1.0 when we predict nothing fo
 
 Most of our accuracy came from cross-encoders that read both records together, trained on the retriever's own hard negatives and stacked into a gradient-boosted matcher. That took the leaderboard from 0.956 to above 0.98. Self-training on the unseen country, removing features that shift between train and test, and averaging runs gave the rest.
 
-Our main lesson is that at this level the local validation couldn't see the distribution shift: a new country, and denser, more decoy-heavy test data. Changes that kept train and test consistent, or only reduced variance, transferred to the leaderboard. Larger models (Qwen 7B, a 568M bi-encoder) and extra stacking layers looked fine locally and didn't. The biggest remaining loss is France. With more time, we would build a French-aware normaliser (départements, "av."/"bd" abbreviations, French filler words) applied before blocking and training, and add pseudo-labelled French records to validation so this error is visible when decisions are made. We did not build this during the challenge.
+Our main lesson is that at this level the local validation couldn't see the distribution shift: a new country, and denser, more decoy-heavy test data. Changes that kept train and test consistent, or only reduced variance, transferred to the leaderboard. Larger models (Qwen 7B, a 568M bi-encoder) and extra stacking layers looked fine locally and didn't. The biggest remaining loss is France, which leads straight into what we would do next.
+
+### Future scope
+
+None of the following was built during the challenge. These are the directions we would take next, most promising first.
+
+1. **A French-aware normaliser.** France is our biggest remaining loss, and our normalisation was written with US and Indian records in mind. Next we would handle French conventions before blocking and training: map départements to their region (a mapping that can be learned from the provided records themselves), expand street abbreviations such as "av.", "bd", "r." and "pl.", handle "N°" and "bis/ter" house numbers, and strip French filler words. Because this changes the text that every model sees, it means re-running the whole pipeline, which is why it didn't fit in the challenge window.
+2. **France in validation.** Our validation never contained French data, so it could not warn us about the largest source of error. A validation slice built from confident French pseudo-labels, or from French-style noise applied to held-out training pairs, would make France visible when making decisions instead of only through leaderboard probes.
+3. **Per-country calibration instead of threshold probes.** We found France's threshold by probing the leaderboard. A cleaner way is to calibrate the model's probabilities per country, for example with temperature scaling fitted on French pseudo-labels, so that 0.5 means the same thing in every country.
+4. **Deciding ambiguous records jointly.** Most remaining errors are no-address records whose name is shared by several S1 businesses. Scoring one pair at a time can't separate them. A listwise model that sees all candidates of a record at once, or a check that an S2 record and an S3 record that match each other end up at the same S1, could use information that pairwise scoring ignores.
+5. **An adaptive candidate budget.** Instead of one probability cut-off, the number of candidates kept could depend on how clear the decision is. When the best candidate is far ahead, one candidate is enough; only close calls need more. This could cut the candidate set further without losing recall.
+6. **A faster pipeline.** The four-run Qwen ensemble is the slowest part. Distilling it into a single small cross-encoder would cut the end-to-end runtime a lot, which matters if this runs over billions of records.
 
 ---
 
